@@ -1,0 +1,282 @@
+# ORIG-18: PR-gating test job. Byte-identical to deploy.yml's `test` job but
+# triggered on pull_request, so Forgejo branch protection can require the
+# context `premerge / test (pull_request)` before any merge — the platform-
+# native fix for the PR-merge gate-bypass hole (PLAT-4516). Keep in sync with
+# deploy.yml when its job changes.
+#
+# PLAT-4443: also runs frontend `npm test` (follow-redirects axios consumer
+# boundary regression) on the exact PR head via the Origin npm cache.
+name: premerge
+on:
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install kubectl + cluster access
+        run: |
+          set -euo pipefail
+          KUBECTL_ARCH="$(uname -m)"; case "$KUBECTL_ARCH" in x86_64) KUBECTL_ARCH=amd64;; aarch64) KUBECTL_ARCH=arm64;; *) echo "Unsupported runner arch: $KUBECTL_ARCH" >&2; exit 1;; esac
+          curl -fsSL -o kubectl "http://forgejo-http.origin.svc.cluster.local/api/packages/actions/generic/kubectl/v1.34.1/kubectl-${KUBECTL_ARCH}"
+          install -m 0755 kubectl /usr/local/bin/kubectl
+          mkdir -p "$HOME/.kube"
+          printf '%s' "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+      - name: Run wiki authz-invariant test suite before deploy
+        run: |
+          set -euo pipefail
+          SHORT="$(echo "${{ github.sha }}" | cut -c1-7)"
+          JOB="ci-test-shizuha-wiki-${SHORT}"
+          kubectl delete job -n build "${JOB}" --ignore-not-found
+
+          cat <<YAML | kubectl apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ${JOB}
+            namespace: build
+            labels: { app: ci-test, service: shizuha-wiki, shizuha.io/ci-gate: WIKI-23, shizuha.io/orig-task: ORIG-9 }
+          spec:
+            backoffLimit: 0
+            ttlSecondsAfterFinished: 3600
+            template:
+              spec:
+                restartPolicy: Never
+                initContainers:
+                  # The Actions runner is outside the Kubernetes executor
+                  # boundary, so it must not call *.svc.cluster.local itself.
+                  # This in-cluster init container is the synchronous
+                  # pre-publish admission point for the exact PR head.
+                  - name: source-authority-contract
+                    image: curlimages/curl:8.5.0
+                    command: ["/bin/sh","-c"]
+                    args:
+                      - |
+                        set -euo pipefail
+                        case "\${SOURCE_SHA}" in
+                          [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+                          *) echo "invalid exact PR head: \${SOURCE_SHA}" >&2; exit 64 ;;
+                        esac
+                        printf '{"repo":"wiki","ref":"%s"}' "\${SOURCE_SHA}" > /tmp/source-authority.json
+                        # The registry rollout can briefly surface a transient
+                        # 5xx/timeout to a just-scheduled consumer. Retry only
+                        # curl's transient classes (plus connection refused);
+                        # deterministic contract rejections must still fail
+                        # immediately and closed.
+                        curl --fail-with-body --retry 8 --retry-connrefused \
+                          --retry-delay 2 --retry-max-time 30 \
+                          --connect-timeout 3 --max-time 10 \
+                          -H 'Content-Type: application/json' \
+                          -H 'X-Shizuha-Event-Source: origin-ci' \
+                          --data-binary @/tmp/source-authority.json \
+                          http://repo-config-probe.origin.svc.cluster.local:8080/contracts/repository
+                    env:
+                      - name: SOURCE_SHA
+                        value: "${{ github.event.pull_request.head.sha }}"
+                  - name: git-clone
+                    image: alpine/git:2.43.0
+                    command: ["/bin/sh","-c"]
+                    args:
+                      - |
+                        set -euo pipefail
+                        SOURCE_URL="\${GIT_SOURCE_URL:-}"
+                        SOURCE_SHA="\${GIT_SOURCE_SHA:-}"
+                        [ -n "\${SOURCE_URL}" ] && [ "\${SOURCE_URL}" != "<no value>" ] || SOURCE_URL="http://forgejo-http.origin.svc.cluster.local/shizuha-labs/wiki.git"
+                        [ -n "\${SOURCE_SHA}" ] && [ "\${SOURCE_SHA}" != "<no value>" ] || SOURCE_SHA="${{ github.sha }}"
+                        case "\${SOURCE_URL}" in
+                          # ORIG-18: the mirror is downstream and read-only. Refuse it as a CI
+                          # source instead of falling through to the catch-all, which would
+                          # clone it unauthenticated — quieter, not safer.
+                          *github.com/*)
+                            echo "ORIG-18: refusing retired downstream mirror as CI source: \${SOURCE_URL}" >&2
+                            exit 1
+                            ;;
+                          http://forgejo-http.origin.svc.cluster.local/*) AUTH_URL="http://x-token-auth:\${GIT_PASSWORD}@forgejo-http.origin.svc.cluster.local/\${SOURCE_URL#http://forgejo-http.origin.svc.cluster.local/}" ;;
+                          https://origin.shizuha.com/*) AUTH_URL="http://x-token-auth:\${GIT_PASSWORD}@forgejo-http.origin.svc.cluster.local/\${SOURCE_URL#https://origin.shizuha.com/}" ;;
+                          *) echo "refusing non-Origin source URL: \${SOURCE_URL}" >&2; exit 64 ;;
+                        esac
+                        git init /workspace/src
+                        cd /workspace/src
+                        git remote add origin "\${AUTH_URL}"
+                        git fetch --depth=1 origin "\${SOURCE_SHA}"
+                        git checkout --detach FETCH_HEAD
+                        test "\$(git rev-parse HEAD)" = "\${SOURCE_SHA}"
+                    env:
+                      - name: GIT_PASSWORD
+                        valueFrom: { secretKeyRef: { name: forgejo-token, key: password } }
+                      - name: GIT_SOURCE_URL
+                        value: "${{ github.event.pull_request.head.repo.clone_url }}"
+                      - name: GIT_SOURCE_SHA
+                        value: "${{ github.event.pull_request.head.sha }}"
+                    volumeMounts: [{ mountPath: /workspace, name: workspace }]
+                containers:
+                  - name: test
+                    image: python:3.12-bookworm
+                    command: ["/bin/bash","-lc"]
+                    args:
+                      - |
+                        set -euo pipefail
+                        export DEBIAN_FRONTEND=noninteractive
+                        apt-get -o Acquire::http::Proxy=http://apt-cache.registry.svc.cluster.local:3142 update
+                        apt-get -o Acquire::http::Proxy=http://apt-cache.registry.svc.cluster.local:3142 install -y --no-install-recommends postgresql redis-server build-essential libpq-dev
+                        pg_ctlcluster 15 main start
+                        su postgres -c "psql -c \"ALTER USER postgres PASSWORD 'postgres';\""
+                        su postgres -c "createdb shizuha_wiki_ci" || true
+                        redis-server --daemonize yes
+                        cd /workspace/src
+                        python -m pip install --index-url http://pip-cache.registry.svc.cluster.local/simple --trusted-host pip-cache.registry.svc.cluster.local --upgrade pip
+                        pip install --index-url http://pip-cache.registry.svc.cluster.local/simple --trusted-host pip-cache.registry.svc.cluster.local -r requirements.txt
+                        export POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_USER=postgres POSTGRES_PASSWORD=postgres POSTGRES_DB=shizuha_wiki_ci
+                        export CELERY_BROKER_URL=redis://127.0.0.1:6379/5 CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/5 DEBUG=True SECRET_KEY=ci-secret JWT_SECRET_KEY=ci-secret
+                        # Run the whole wiki/tests package — the authz-invariant modules
+                        # (test_wiki21_object_authz + test_wiki19_authz_isolation) live here,
+                        # so any cross-space/cross-org isolation regression fails the gate.
+                        python -m unittest discover -s mcp-server -p 'test_*.py' -v
+                        python manage.py test wiki.tests --noinput
+                    resources:
+                      requests: { memory: 2Gi, cpu: "1" }
+                      limits: { memory: 8Gi }
+                    volumeMounts: [{ mountPath: /workspace, name: workspace }]
+                volumes: [{ emptyDir: {}, name: workspace }]
+          YAML
+
+          dump_job_diagnostics() {
+            echo "::group::wiki authz test gate diagnostics"
+            kubectl get job -n build "${JOB}" -o wide || true
+            PODS="$(kubectl get pods -n build -l "job-name=${JOB}" \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+            if [ -z "${PODS}" ]; then
+              echo "No pod was created for job/${JOB}"
+            else
+              while IFS= read -r POD; do
+                [ -n "${POD}" ] || continue
+                echo "--- pod/${POD} container states ---"
+                kubectl get pod -n build "${POD}" -o jsonpath='phase={.status.phase} reason={.status.reason} message={.status.message}{"\n"}{range .status.initContainerStatuses[*]}init/{.name}: waiting={.state.waiting.reason} terminated={.state.terminated.reason} exit={.state.terminated.exitCode} message={.state.terminated.message}{"\n"}{end}{range .status.containerStatuses[*]}container/{.name}: waiting={.state.waiting.reason} terminated={.state.terminated.reason} exit={.state.terminated.exitCode} message={.state.terminated.message}{"\n"}{end}' || true
+                CONTAINERS="$(kubectl get pod -n build "${POD}" \
+                  -o jsonpath='{range .spec.initContainers[*]}{.name}{"\n"}{end}{range .spec.containers[*]}{.name}{"\n"}{end}' 2>/dev/null || true)"
+                while IFS= read -r CONTAINER; do
+                  [ -n "${CONTAINER}" ] || continue
+                  echo "--- logs pod/${POD} container/${CONTAINER} ---"
+                  kubectl logs -n build "${POD}" -c "${CONTAINER}" \
+                    --timestamps --tail=300 ||
+                    echo "logs unavailable for pod/${POD} container/${CONTAINER}; state is shown above"
+                done <<< "${CONTAINERS}"
+                echo "--- describe pod/${POD} ---"
+                kubectl describe pod -n build "${POD}" || true
+              done <<< "${PODS}"
+            fi
+            echo "::endgroup::"
+          }
+
+          # Poll for Complete OR Failed — `kubectl wait --for=condition=complete`
+          # never returns on a FAILED job (PLS-207/PLAT-1219), which would hang the
+          # gate for the full timeout and lose the suite output to ttl reaping.
+          DEADLINE=$(( $(date +%s) + 1800 ))
+          while true; do
+            COMPLETE="$(kubectl get job -n build "${JOB}" -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || true)"
+            FAILED="$(kubectl get job -n build "${JOB}" -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || true)"
+            [ "${COMPLETE}" = "True" ] && break
+            if [ "${FAILED}" = "True" ]; then
+              echo "::error::wiki authz test gate FAILED — diagnostics follow"
+              dump_job_diagnostics
+              exit 1
+            fi
+            if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
+              echo "::error::wiki authz test gate timed out after 1800s"
+              dump_job_diagnostics
+              exit 1
+            fi
+            sleep 10
+          done
+          kubectl logs -n build "job/${JOB}" --all-containers --tail=120 || true
+
+      - name: Run frontend security tests (PLAT-4443)
+        run: |
+          set -euo pipefail
+          SHORT="$(echo "${{ github.sha }}" | cut -c1-7)"
+          JOB="ci-frontend-shizuha-wiki-${SHORT}"
+          kubectl delete job -n build "${JOB}" --ignore-not-found
+
+          cat <<YAML2 | kubectl apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ${JOB}
+            namespace: build
+            labels: { app: ci-test, service: shizuha-wiki, shizuha.io/ci-gate: WIKI-23, shizuha.io/orig-task: PLAT-4443 }
+          spec:
+            backoffLimit: 0
+            ttlSecondsAfterFinished: 3600
+            template:
+              spec:
+                restartPolicy: Never
+                initContainers:
+                  - name: git-clone
+                    image: alpine/git:2.43.0
+                    command: ["/bin/sh","-c"]
+                    args:
+                      - |
+                        set -euo pipefail
+                        SOURCE_URL="\${GIT_SOURCE_URL:-}"
+                        SOURCE_SHA="\${GIT_SOURCE_SHA:-}"
+                        [ -n "\${SOURCE_URL}" ] && [ "\${SOURCE_URL}" != "<no value>" ] || SOURCE_URL="http://forgejo-http.origin.svc.cluster.local/shizuha-labs/wiki.git"
+                        [ -n "\${SOURCE_SHA}" ] && [ "\${SOURCE_SHA}" != "<no value>" ] || SOURCE_SHA="${{ github.sha }}"
+                        case "\${SOURCE_URL}" in
+                          http://forgejo-http.origin.svc.cluster.local/*) AUTH_URL="http://x-token-auth:\${GIT_PASSWORD}@forgejo-http.origin.svc.cluster.local/\${SOURCE_URL#http://forgejo-http.origin.svc.cluster.local/}" ;;
+                          https://origin.shizuha.com/*) AUTH_URL="http://x-token-auth:\${GIT_PASSWORD}@forgejo-http.origin.svc.cluster.local/\${SOURCE_URL#https://origin.shizuha.com/}" ;;
+                          *) echo "refusing non-Origin source URL: \${SOURCE_URL}" >&2; exit 64 ;;
+                        esac
+                        git init /workspace/src
+                        cd /workspace/src
+                        git remote add origin "\${AUTH_URL}"
+                        git fetch --depth=1 origin "\${SOURCE_SHA}"
+                        git checkout --detach FETCH_HEAD
+                        test "\$(git rev-parse HEAD)" = "\${SOURCE_SHA}"
+                    env:
+                      - name: GIT_PASSWORD
+                        valueFrom: { secretKeyRef: { name: forgejo-token, key: password } }
+                      - name: GIT_SOURCE_URL
+                        value: "${{ github.event.pull_request.head.repo.clone_url }}"
+                      - name: GIT_SOURCE_SHA
+                        value: "${{ github.event.pull_request.head.sha }}"
+                    volumeMounts: [{ mountPath: /workspace, name: workspace }]
+                containers:
+                  - name: frontend-test
+                    image: node:22-bookworm
+                    command: ["/bin/bash","-lc"]
+                    args:
+                      - |
+                        set -euo pipefail
+                        export NPM_CONFIG_REGISTRY="http://npm-cache.registry.svc.cluster.local:4873/"
+                        curl -fsS --max-time 15 "\${NPM_CONFIG_REGISTRY%/}/" >/dev/null \
+                          || { echo "npm cache unreachable: \${NPM_CONFIG_REGISTRY}" >&2; exit 1; }
+                        cd /workspace/src/frontend
+                        npm ci --no-audit --no-fund
+                        npm test
+                    resources:
+                      requests: { memory: 1Gi, cpu: "500m" }
+                      limits: { memory: 4Gi }
+                    volumeMounts: [{ mountPath: /workspace, name: workspace }]
+                volumes: [{ emptyDir: {}, name: workspace }]
+          YAML2
+
+          DEADLINE=$(( $(date +%s) + 900 ))
+          while true; do
+            COMPLETE="$(kubectl get job -n build "${JOB}" -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || true)"
+            FAILED="$(kubectl get job -n build "${JOB}" -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || true)"
+            [ "${COMPLETE}" = "True" ] && break
+            if [ "${FAILED}" = "True" ]; then
+              echo "::error::wiki frontend security test gate FAILED — output follows"
+              kubectl logs -n build "job/${JOB}" --all-containers --tail=300 || true
+              exit 1
+            fi
+            if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
+              echo "::error::wiki frontend security test gate timed out"
+              kubectl logs -n build "job/${JOB}" --all-containers --tail=300 || true
+              exit 1
+            fi
+            sleep 10
+          done
+          kubectl logs -n build "job/${JOB}" --all-containers --tail=120 || true

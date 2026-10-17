@@ -1,0 +1,760 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base dark mode styles */
+:root {
+  color-scheme: light dark;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* Prevent flash of unstyled content */
+html {
+  background-color: #f9fafb; /* gray-50 */
+}
+
+html.dark {
+  background-color: #111827; /* gray-900 */
+}
+
+/* Custom styles for TipTap editor */
+.ProseMirror {
+  @apply outline-none min-h-[300px] text-gray-900;
+}
+
+/* Dark mode text colors for editor */
+.dark .ProseMirror {
+  @apply text-gray-100;
+}
+
+.dark .ProseMirror p,
+.dark .ProseMirror li,
+.dark .ProseMirror div {
+  @apply text-gray-100;
+}
+
+.dark .ProseMirror h1,
+.dark .ProseMirror h2,
+.dark .ProseMirror h3,
+.dark .ProseMirror h4 {
+  @apply text-white;
+}
+
+.dark .ProseMirror strong {
+  @apply text-white;
+}
+
+.ProseMirror p {
+  @apply my-3;
+}
+
+.ProseMirror h1 {
+  @apply text-3xl font-bold mt-8 mb-4;
+}
+
+.ProseMirror h2 {
+  @apply text-2xl font-bold mt-6 mb-3;
+}
+
+.ProseMirror h3 {
+  @apply text-xl font-semibold mt-4 mb-2;
+}
+
+.ProseMirror ul {
+  @apply list-disc ml-6 my-3;
+}
+
+.ProseMirror ol {
+  @apply list-decimal ml-6 my-3;
+}
+
+.ProseMirror li {
+  @apply my-1;
+}
+
+.ProseMirror blockquote {
+  @apply border-l-4 border-gray-300 dark:border-gray-600 pl-4 my-4 italic text-gray-600 dark:text-gray-400;
+}
+
+.ProseMirror pre {
+  @apply bg-gray-900 text-gray-100 rounded-lg p-4 my-4 overflow-x-auto;
+}
+
+.ProseMirror code {
+  @apply bg-gray-100 dark:bg-gray-800 text-pink-600 dark:text-pink-400 px-1 py-0.5 rounded text-sm;
+}
+
+.ProseMirror pre code {
+  @apply bg-transparent text-inherit p-0;
+}
+
+.ProseMirror a {
+  @apply text-shizuha-600 dark:text-shizuha-400 underline;
+}
+
+.ProseMirror img {
+  @apply max-w-full h-auto rounded-lg my-4;
+}
+
+.ProseMirror table {
+  @apply border-collapse w-full my-4;
+}
+
+.ProseMirror th,
+.ProseMirror td {
+  @apply border border-gray-300 dark:border-gray-600 px-3 py-2;
+}
+
+.ProseMirror th {
+  @apply bg-gray-100 dark:bg-gray-800 font-semibold text-left;
+}
+
+.ProseMirror hr {
+  @apply border-t border-gray-300 dark:border-gray-600 my-6;
+}
+
+/* Task list styles */
+.ProseMirror ul[data-type="taskList"] {
+  @apply list-none ml-0;
+}
+
+.ProseMirror ul[data-type="taskList"] li {
+  @apply flex items-start gap-2;
+}
+
+.ProseMirror ul[data-type="taskList"] li input[type="checkbox"] {
+  @apply mt-1;
+}
+
+/* Placeholder */
+.ProseMirror p.is-editor-empty:first-child::before {
+  @apply text-gray-400 dark:text-gray-500;
+  content: attr(data-placeholder);
+  float: left;
+  pointer-events: none;
+  height: 0;
+}
+
+/* Highlight */
+.ProseMirror mark {
+  @apply bg-yellow-200 dark:bg-yellow-800;
+}
+
+/* Focus outline */
+.ProseMirror-focused {
+  @apply outline-none;
+}
+
+/* Animation utilities */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.15s ease-out;
+}
+
+/* Callout panel styles */
+.callout {
+  @apply border-l-4 rounded-r-lg p-4 my-4;
+}
+
+.callout-info {
+  @apply bg-blue-50 dark:bg-blue-900/30 border-blue-500;
+}
+
+.callout-note {
+  @apply bg-gray-50 dark:bg-gray-800 border-gray-400;
+}
+
+.callout-tip {
+  @apply bg-green-50 dark:bg-green-900/30 border-green-500;
+}
+
+.callout-warning {
+  @apply bg-yellow-50 dark:bg-yellow-900/30 border-yellow-500;
+}
+
+.callout-error {
+  @apply bg-red-50 dark:bg-red-900/30 border-red-500;
+}
+
+.callout-content p:first-child {
+  @apply mt-0;
+}
+
+.callout-content p:last-child {
+  @apply mb-0;
+}
+
+/* TipTap editor callout styles */
+.ProseMirror .callout-wrapper {
+  @apply my-4;
+}
+
+.ProseMirror [data-callout] {
+  @apply border-l-4 rounded-r-lg p-4;
+}
+
+.ProseMirror [data-callout][data-callout-type="info"] {
+  @apply bg-blue-50 dark:bg-blue-900/30 border-blue-500;
+}
+
+.ProseMirror [data-callout][data-callout-type="note"] {
+  @apply bg-gray-50 dark:bg-gray-800 border-gray-400;
+}
+
+.ProseMirror [data-callout][data-callout-type="tip"] {
+  @apply bg-green-50 dark:bg-green-900/30 border-green-500;
+}
+
+.ProseMirror [data-callout][data-callout-type="warning"] {
+  @apply bg-yellow-50 dark:bg-yellow-900/30 border-yellow-500;
+}
+
+.ProseMirror [data-callout][data-callout-type="error"] {
+  @apply bg-red-50 dark:bg-red-900/30 border-red-500;
+}
+
+/* Table of Contents styles */
+.table-of-contents {
+  @apply bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4 my-4;
+}
+
+.toc-nav ul {
+  @apply list-none m-0 p-0;
+}
+
+.toc-nav li {
+  @apply my-0;
+}
+
+.toc-item {
+  @apply py-1;
+}
+
+.toc-level-1 {
+  @apply font-medium;
+}
+
+.toc-level-2 {
+  @apply text-gray-700 dark:text-gray-300;
+}
+
+.toc-level-3 {
+  @apply text-gray-600 dark:text-gray-400 text-sm;
+}
+
+/* TipTap editor TOC styles */
+.ProseMirror .toc-wrapper {
+  @apply my-4;
+}
+
+.ProseMirror [data-table-of-contents] {
+  @apply bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4;
+}
+
+/* Rendered callout styles (for PageView) */
+.callout-rendered {
+  @apply border-l-4 rounded-r-lg p-4 my-4;
+}
+
+.callout-rendered.callout-info {
+  @apply bg-blue-50 dark:bg-blue-900/30 border-blue-500;
+}
+
+.callout-rendered.callout-note {
+  @apply bg-gray-50 dark:bg-gray-800 border-gray-400;
+}
+
+.callout-rendered.callout-tip {
+  @apply bg-green-50 dark:bg-green-900/30 border-green-500;
+}
+
+.callout-rendered.callout-warning {
+  @apply bg-yellow-50 dark:bg-yellow-900/30 border-yellow-500;
+}
+
+.callout-rendered.callout-error {
+  @apply bg-red-50 dark:bg-red-900/30 border-red-500;
+}
+
+.callout-rendered .callout-icon {
+  @apply flex-shrink-0 mt-0.5;
+}
+
+.callout-rendered.callout-info .callout-icon {
+  @apply text-blue-500;
+}
+
+.callout-rendered.callout-note .callout-icon {
+  @apply text-gray-500;
+}
+
+.callout-rendered.callout-tip .callout-icon {
+  @apply text-green-500;
+}
+
+.callout-rendered.callout-warning .callout-icon {
+  @apply text-yellow-600;
+}
+
+.callout-rendered.callout-error .callout-icon {
+  @apply text-red-500;
+}
+
+.callout-rendered .callout-body {
+  @apply flex-1 min-w-0;
+}
+
+.callout-rendered .callout-body p {
+  @apply my-2 text-gray-700 dark:text-gray-300;
+}
+
+.callout-rendered .callout-body p:first-child {
+  @apply mt-0;
+}
+
+.callout-rendered .callout-body p:last-child {
+  @apply mb-0;
+}
+
+/* Rendered TOC styles (for PageView) */
+.toc-rendered {
+  @apply bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4 my-4;
+}
+
+.toc-rendered .toc-header {
+  @apply flex items-center gap-2 mb-3 pb-2 border-b border-gray-200 dark:border-gray-700;
+}
+
+.toc-rendered .toc-title {
+  @apply text-sm font-medium text-gray-700 dark:text-gray-300;
+}
+
+.toc-rendered .toc-list {
+  @apply list-none m-0 p-0 space-y-1;
+}
+
+.toc-rendered .toc-list a {
+  @apply text-sm text-shizuha-600 dark:text-shizuha-400 hover:underline;
+  text-decoration: none;
+}
+
+.toc-rendered .toc-list li {
+  @apply py-1;
+}
+
+/* View mode typography (mirrors ProseMirror edit styles) */
+.prose {
+  @apply text-gray-900;
+}
+
+.prose p {
+  @apply my-3;
+}
+
+.prose h1 {
+  @apply text-3xl font-bold mt-8 mb-4;
+}
+
+.prose h2 {
+  @apply text-2xl font-bold mt-6 mb-3;
+}
+
+.prose h3 {
+  @apply text-xl font-semibold mt-4 mb-2;
+}
+
+.prose strong {
+  @apply font-bold;
+}
+
+.prose em {
+  @apply italic;
+}
+
+.prose ul {
+  @apply list-disc ml-6 my-3;
+}
+
+.prose ol {
+  @apply list-decimal ml-6 my-3;
+}
+
+.prose li {
+  @apply my-1;
+}
+
+.prose li p {
+  @apply my-0;
+}
+
+.prose blockquote {
+  @apply border-l-4 border-gray-300 pl-4 my-4 italic text-gray-600;
+}
+
+.prose pre {
+  @apply bg-gray-900 text-gray-100 rounded-lg p-4 my-4 overflow-x-auto;
+}
+
+.prose code {
+  @apply bg-gray-100 text-pink-600 px-1 py-0.5 rounded text-sm;
+}
+
+.prose pre code {
+  @apply bg-transparent text-inherit p-0;
+}
+
+.prose a {
+  @apply text-shizuha-600 underline;
+}
+
+.prose img {
+  @apply max-w-full h-auto rounded-lg my-4;
+}
+
+.wiki-mermaid {
+  @apply relative my-6 overflow-x-auto rounded-lg border border-gray-200 bg-white p-4;
+}
+
+.dark .wiki-mermaid {
+  @apply border-gray-700 bg-gray-950;
+}
+
+.wiki-mermaid svg {
+  max-width: 100%;
+  height: auto;
+  background: transparent;
+}
+
+@font-face {
+  font-family: Virgil;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/Virgil.woff2') format('woff2');
+}
+
+html {
+  --wiki-diagram-rx: 8px;
+}
+
+.wiki-mermaid[data-diagram-look='handDrawn'],
+.wiki-diagram-stage[data-diagram-look='handDrawn'] {
+  background: #ffffff;
+  border-color: #e9ecef;
+  color: #1e1e1e;
+}
+
+.dark .wiki-mermaid[data-diagram-look='handDrawn'],
+.dark .wiki-diagram-stage[data-diagram-look='handDrawn'] {
+  background: #121212;
+  border-color: #343a40;
+  color: #1e1e1e;
+}
+
+html.dark .wiki-mermaid[data-diagram-look='handDrawn'] svg,
+html.dark .wiki-diagram-stage[data-diagram-look='handDrawn'] svg {
+  filter: invert(93%) hue-rotate(180deg);
+}
+
+/* Excalidraw ink, pre-invert, in-page and in the viewer. Invert then paints
+   the labels white on the #121212 canvas in both places. Do not pin fill on
+   the SVG root — node/cluster shapes keep their Open Color swatches. */
+.wiki-mermaid[data-diagram-look='handDrawn'] svg text,
+.wiki-mermaid[data-diagram-look='handDrawn'] svg tspan,
+.wiki-mermaid[data-diagram-look='handDrawn'] svg foreignObject,
+.wiki-mermaid[data-diagram-look='handDrawn'] svg foreignObject *,
+.wiki-mermaid[data-diagram-look='handDrawn'] svg .label,
+.wiki-mermaid[data-diagram-look='handDrawn'] svg .nodeLabel,
+.wiki-mermaid[data-diagram-look='handDrawn'] svg .cluster-label,
+.wiki-mermaid[data-diagram-look='handDrawn'] svg .edgeLabel,
+.wiki-diagram-stage[data-diagram-look='handDrawn'] svg text,
+.wiki-diagram-stage[data-diagram-look='handDrawn'] svg tspan,
+.wiki-diagram-stage[data-diagram-look='handDrawn'] svg foreignObject,
+.wiki-diagram-stage[data-diagram-look='handDrawn'] svg foreignObject *,
+.wiki-diagram-stage[data-diagram-look='handDrawn'] svg .label,
+.wiki-diagram-stage[data-diagram-look='handDrawn'] svg .nodeLabel,
+.wiki-diagram-stage[data-diagram-look='handDrawn'] svg .cluster-label,
+.wiki-diagram-stage[data-diagram-look='handDrawn'] svg .edgeLabel {
+  color: #1e1e1e !important;
+  fill: #1e1e1e !important;
+}
+
+.wiki-mermaid[data-diagram-look='handDrawn'] svg .edgeLabel,
+.wiki-mermaid[data-diagram-look='handDrawn'] svg .edgeLabel span,
+.wiki-mermaid[data-diagram-look='handDrawn'] svg .edgeLabel p,
+.wiki-diagram-stage[data-diagram-look='handDrawn'] svg .edgeLabel,
+.wiki-diagram-stage[data-diagram-look='handDrawn'] svg .edgeLabel span,
+.wiki-diagram-stage[data-diagram-look='handDrawn'] svg .edgeLabel p {
+  background-color: #ffffff !important;
+}
+
+html[data-diagram-look='classic'] .wiki-mermaid svg .node .outer-path,
+html[data-diagram-look='classic'] .wiki-mermaid svg .neo-line,
+html[data-diagram-look='classic'] .wiki-diagram-world svg .node .outer-path,
+html[data-diagram-look='classic'] .wiki-diagram-world svg .neo-line,
+.wiki-mermaid[data-diagram-look='classic'] svg .node .outer-path,
+.wiki-mermaid[data-diagram-look='classic'] svg .neo-line {
+  display: none;
+}
+
+html[data-diagram-look='classic'] .wiki-mermaid svg .node,
+html[data-diagram-look='classic'] .wiki-mermaid svg .node rect,
+html[data-diagram-look='classic'] .wiki-mermaid svg .cluster rect,
+html[data-diagram-look='classic'] .wiki-mermaid svg .actor,
+html[data-diagram-look='classic'] .wiki-mermaid svg .label-container,
+html[data-diagram-look='classic'] .wiki-mermaid svg rect.basic,
+html[data-diagram-look='classic'] .wiki-diagram-world svg .node,
+html[data-diagram-look='classic'] .wiki-diagram-world svg .node rect,
+html[data-diagram-look='classic'] .wiki-diagram-world svg .cluster rect,
+html[data-diagram-look='classic'] .wiki-diagram-world svg .actor,
+html[data-diagram-look='classic'] .wiki-diagram-world svg .label-container,
+html[data-diagram-look='classic'] .wiki-diagram-world svg rect.basic {
+  filter: none !important;
+  opacity: 1;
+}
+
+.wiki-mermaid svg .node rect,
+.wiki-mermaid svg .cluster rect,
+.wiki-mermaid svg .actor,
+.wiki-mermaid svg .label-container,
+.wiki-mermaid svg rect.basic,
+.wiki-diagram-world svg .node rect,
+.wiki-diagram-world svg .cluster rect,
+.wiki-diagram-world svg .actor,
+.wiki-diagram-world svg .label-container,
+.wiki-diagram-world svg rect.basic {
+  rx: var(--wiki-diagram-rx);
+  ry: var(--wiki-diagram-rx);
+}
+
+.wiki-mermaid svg .edgePath .path,
+.wiki-mermaid svg .flowchart-link,
+.wiki-mermaid svg path.flowchart-link,
+.wiki-diagram-world svg .edgePath .path,
+.wiki-diagram-world svg .flowchart-link,
+.wiki-diagram-world svg path.flowchart-link {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.wiki-mermaid svg .edgeLabel,
+.wiki-mermaid svg .edgeLabel rect,
+.wiki-diagram-world svg .edgeLabel,
+.wiki-diagram-world svg .edgeLabel rect {
+  rx: 6px;
+  ry: 6px;
+}
+
+.wiki-mermaid[data-mermaid-error='1'] {
+  @apply whitespace-pre-wrap font-mono text-sm text-red-700 dark:text-red-400;
+}
+
+html.wiki-zen .wiki-chrome {
+  display: none !important;
+}
+
+html.wiki-zen .wiki-shell {
+  padding-left: 0 !important;
+}
+
+html.wiki-zen .wiki-main {
+  padding: 1.5rem 2rem 3rem;
+}
+
+html.wiki-zen {
+  background-color: #ffffff;
+}
+
+html.dark.wiki-zen {
+  background-color: #111827;
+}
+
+.wiki-mermaid-chrome {
+  @apply absolute top-2 right-2 z-10 inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white/90 px-2 py-1 text-xs font-medium text-gray-700 shadow-sm backdrop-blur;
+}
+
+.dark .wiki-mermaid-chrome {
+  @apply border-gray-600 bg-gray-900/90 text-gray-200;
+}
+
+html.wiki-diagram-zen {
+  overflow: hidden;
+}
+
+.wiki-diagram-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  width: 100%;
+  height: 100%;
+  background: #f8fafc;
+  overscroll-behavior: none;
+}
+
+.wiki-diagram-stage:fullscreen,
+.wiki-diagram-stage:-webkit-full-screen {
+  display: block !important;
+  width: 100%;
+  height: 100%;
+  inset: 0;
+}
+
+.dark .wiki-diagram-stage {
+  background: #030712;
+}
+
+.wiki-diagram-toolbar {
+  @apply absolute top-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-gray-200 bg-white/90 p-1 text-sm text-gray-800 shadow-lg backdrop-blur;
+}
+
+.dark .wiki-diagram-toolbar {
+  @apply border-gray-700 bg-gray-900/90 text-gray-100;
+}
+
+.wiki-diagram-toolbar button {
+  @apply rounded-md px-2.5 py-1.5 hover:bg-gray-100;
+}
+
+.dark .wiki-diagram-toolbar button:hover {
+  @apply bg-gray-800;
+}
+
+.wiki-diagram-pct {
+  @apply min-w-[3.5rem] px-1 text-center tabular-nums text-xs text-gray-500;
+}
+
+.dark .wiki-diagram-pct {
+  @apply text-gray-400;
+}
+
+.wiki-diagram-close {
+  @apply ml-1;
+}
+
+.wiki-diagram-settings {
+  @apply rounded-md px-2.5 py-1.5 text-shizuha-600 hover:bg-gray-100;
+}
+
+.dark .wiki-diagram-settings {
+  @apply text-sky-400 hover:bg-gray-800;
+}
+
+.wiki-diagram-hint {
+  @apply pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2 text-xs text-gray-500;
+}
+
+.dark .wiki-diagram-hint {
+  @apply text-gray-500;
+}
+
+.wiki-diagram-canvas {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+.wiki-diagram-canvas.is-panning {
+  cursor: grabbing;
+}
+
+.wiki-diagram-world {
+  transform-origin: 0 0;
+  width: max-content;
+}
+
+.wiki-diagram-world svg {
+  max-width: none !important;
+  height: auto;
+}
+
+.prose table {
+  @apply border-collapse w-full my-4;
+}
+
+.prose th,
+.prose td {
+  @apply border border-gray-300 px-3 py-2;
+}
+
+.prose th {
+  @apply bg-gray-100 font-semibold text-left;
+}
+
+.prose hr {
+  @apply border-t border-gray-300 my-6;
+}
+
+.prose mark {
+  @apply bg-yellow-200;
+}
+
+.prose > *:first-child {
+  margin-top: 0;
+}
+
+/* Dark mode for prose content in PageView */
+.dark .prose {
+  @apply text-gray-100;
+}
+
+.dark .prose p:not(.wiki-mermaid *),
+.dark .prose li:not(.wiki-mermaid *),
+.dark .prose div:not(.wiki-mermaid):not(.wiki-mermaid *) {
+  @apply text-gray-100;
+}
+
+.dark .prose h1:not(.wiki-mermaid *),
+.dark .prose h2:not(.wiki-mermaid *),
+.dark .prose h3:not(.wiki-mermaid *),
+.dark .prose h4:not(.wiki-mermaid *) {
+  @apply text-white;
+}
+
+.dark .prose strong:not(.wiki-mermaid *) {
+  @apply text-white;
+}
+
+.dark .prose a:not(.wiki-mermaid *) {
+  @apply text-shizuha-400;
+}
+
+.dark .prose blockquote {
+  @apply text-gray-300 border-gray-600;
+}
+
+.dark .prose code {
+  @apply bg-gray-800 text-pink-400;
+}
+
+.dark .prose th,
+.dark .prose td {
+  @apply border-gray-600;
+}
+
+.dark .prose th {
+  @apply bg-gray-800;
+}
+
+.dark .prose hr {
+  @apply border-gray-600;
+}
+
+.dark .prose mark {
+  @apply bg-yellow-800;
+}

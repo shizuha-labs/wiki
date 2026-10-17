@@ -1,0 +1,587 @@
+# Shizuha Origin CI/CD — MULTI-ARCH build + deploy wiki (ORIG-7 Plan A).
+# Lives in the wiki repo; triggers on its own pushes (synced GitHub->Origin every 5m).
+# Builds wiki for BOTH amd64 + arm64 via two in-cluster kaniko Jobs (arch-matched nodes),
+# combines them into a multi-arch manifest list with crane, deploys the list, and verifies.
+# Multi-arch = the image runs on any platform node (s1 amd64 OR gx10 arm64) per PLAT-718 —
+# no single-arch regression / exec-format crashes. Auth = KUBE_CONFIG_B64 org secret
+# (least-privilege origin-ci-deployer SA). No submodule checkout, no docker-in-DinD.
+name: deploy-wiki
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main, master]
+    # Forgejo supports on.push.paths (allowlist form only). Frontend-only and
+    # docs-only commits are shipped by deploy-frontend.yml, so this backend
+    # pipeline rebuilds + reruns the suite only when a backend-relevant path
+    # changes. Conservative by design: when unsure whether a path affects the
+    # backend image/tests, INCLUDE it here (fail-safe = rebuild, never skip).
+    paths:
+      - '.forgejo/workflows/deploy.yml'
+      - '.forgejo/scripts/**'
+      - 'Dockerfile*'
+      - '.dockerignore'
+      - 'docker-entrypoint.sh'
+      - 'supervisord.conf'
+      - 'requirements.txt'
+      - 'manage.py'
+      - 'conftest.py'
+      - 'shizuha_auth.py'
+      - 'shizuha_revocation.py'
+      - 'test_plat1034_revocation.py'
+      - 'wiki/**'
+      - 'wikimanager/**'
+      - 'mcp-server/**'
+      - 'scripts/**'
+# Only the latest commit per branch builds; a newer push cancels an older in-flight run.
+# (The GitHub->Origin pull-sync also collapses rapid commits to one run per cycle.)
+concurrency:
+  group: deploy-wiki-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  # WIKI-23 (epic WIKI-17): deploy-blocking authz-invariant test gate. Runs the
+  # wiki test suite — including the tenant-isolation authz tests (WIKI-21
+  # object-authz F1/F2/F3 + the WIKI-19 cross-org read/write-IDOR matrix) — in an
+  # in-cluster Postgres-backed Job. build-and-deploy `needs:` this, so a cross-
+  # space/cross-org authz regression BLOCKS deploy (mirrors MAIL-48 / PLAT-1219 /
+  # PLAT-1300). Pattern + failure-polling copied from shizuha-tasks' gate.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install kubectl + cluster access
+        run: |
+          set -euo pipefail
+          KUBECTL_ARCH="$(uname -m)"; case "$KUBECTL_ARCH" in x86_64) KUBECTL_ARCH=amd64;; aarch64) KUBECTL_ARCH=arm64;; *) echo "Unsupported runner arch: $KUBECTL_ARCH" >&2; exit 1;; esac
+          curl -fsSL -o kubectl "http://forgejo-http.origin.svc.cluster.local/api/packages/actions/generic/kubectl/v1.34.1/kubectl-${KUBECTL_ARCH}"
+          install -m 0755 kubectl /usr/local/bin/kubectl
+          mkdir -p "$HOME/.kube"
+          printf '%s' "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+      - name: Run wiki authz-invariant test suite before deploy
+        run: |
+          set -euo pipefail
+          SHORT="$(echo "${{ github.sha }}" | cut -c1-7)"
+          JOB="ci-test-shizuha-wiki-${SHORT}"
+          kubectl delete job -n build "${JOB}" --ignore-not-found
+
+          cat <<YAML | kubectl apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ${JOB}
+            namespace: build
+            labels: { app: ci-test, service: shizuha-wiki, shizuha.io/ci-gate: WIKI-23, shizuha.io/orig-task: ORIG-9 }
+          spec:
+            backoffLimit: 0
+            ttlSecondsAfterFinished: 300
+            template:
+              spec:
+                restartPolicy: Never
+                initContainers:
+                  - name: git-clone
+                    image: alpine/git:2.43.0
+                    command: ["/bin/sh","-c"]
+                    args:
+                      - |
+                        set -euo pipefail
+                        SOURCE_URL="\${GIT_SOURCE_URL:-}"
+                        SOURCE_SHA="\${GIT_SOURCE_SHA:-}"
+                        [ -n "\${SOURCE_URL}" ] && [ "\${SOURCE_URL}" != "<no value>" ] || SOURCE_URL="http://forgejo-http.origin.svc.cluster.local/shizuha-labs/wiki.git"
+                        [ -n "\${SOURCE_SHA}" ] && [ "\${SOURCE_SHA}" != "<no value>" ] || SOURCE_SHA="${{ github.sha }}"
+                        case "\${SOURCE_URL}" in
+                          # ORIG-18: the mirror is downstream and read-only. Refuse it as a CI
+                          # source instead of falling through to the catch-all, which would
+                          # clone it unauthenticated — quieter, not safer.
+                          *github.com/*)
+                            echo "ORIG-18: refusing retired downstream mirror as CI source: \${SOURCE_URL}" >&2
+                            exit 1
+                            ;;
+                          http://forgejo-http.origin.svc.cluster.local/*) AUTH_URL="http://x-token-auth:\${GIT_PASSWORD}@forgejo-http.origin.svc.cluster.local/\${SOURCE_URL#http://forgejo-http.origin.svc.cluster.local/}" ;;
+                          https://origin.shizuha.com/*) AUTH_URL="http://x-token-auth:\${GIT_PASSWORD}@forgejo-http.origin.svc.cluster.local/\${SOURCE_URL#https://origin.shizuha.com/}" ;;
+                          *) echo "refusing non-Origin source URL: \${SOURCE_URL}" >&2; exit 64 ;;
+                        esac
+                        git init /workspace/src
+                        cd /workspace/src
+                        git remote add origin "\${AUTH_URL}"
+                        git fetch --depth=1 origin "\${SOURCE_SHA}"
+                        git checkout --detach FETCH_HEAD
+                        test "\$(git rev-parse HEAD)" = "\${SOURCE_SHA}"
+                    env:
+                      - name: GIT_PASSWORD
+                        valueFrom: { secretKeyRef: { name: forgejo-token, key: password } }
+                      - name: GIT_SOURCE_URL
+                        value: "${{ github.event.pull_request.head.repo.clone_url }}"
+                      - name: GIT_SOURCE_SHA
+                        value: "${{ github.event.pull_request.head.sha }}"
+                    volumeMounts: [{ mountPath: /workspace, name: workspace }]
+                containers:
+                  - name: test
+                    image: python:3.12-bookworm
+                    command: ["/bin/bash","-lc"]
+                    args:
+                      - |
+                        set -euo pipefail
+                        export DEBIAN_FRONTEND=noninteractive
+                        apt-get -o Acquire::http::Proxy=http://apt-cache.registry.svc.cluster.local:3142 update
+                        apt-get -o Acquire::http::Proxy=http://apt-cache.registry.svc.cluster.local:3142 install -y --no-install-recommends postgresql redis-server build-essential libpq-dev
+                        pg_ctlcluster 15 main start
+                        su postgres -c "psql -c \"ALTER USER postgres PASSWORD 'postgres';\""
+                        su postgres -c "createdb shizuha_wiki_ci" || true
+                        redis-server --daemonize yes
+                        cd /workspace/src
+                        python -m pip install --index-url http://pip-cache.registry.svc.cluster.local/simple --trusted-host pip-cache.registry.svc.cluster.local --upgrade pip
+                        pip install --index-url http://pip-cache.registry.svc.cluster.local/simple --trusted-host pip-cache.registry.svc.cluster.local -r requirements.txt
+                        export POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_USER=postgres POSTGRES_PASSWORD=postgres POSTGRES_DB=shizuha_wiki_ci
+                        export CELERY_BROKER_URL=redis://127.0.0.1:6379/5 CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/5 DEBUG=True SECRET_KEY=ci-secret JWT_SECRET_KEY=ci-secret
+                        # Run the whole wiki/tests package — the authz-invariant modules
+                        # (test_wiki21_object_authz + test_wiki19_authz_isolation) live here,
+                        # so any cross-space/cross-org isolation regression fails the gate.
+                        python -m unittest discover -s mcp-server -p 'test_*.py' -v
+                        python manage.py test wiki.tests --noinput
+                    resources:
+                      requests: { memory: 2Gi, cpu: "1" }
+                      limits: { memory: 8Gi }
+                    volumeMounts: [{ mountPath: /workspace, name: workspace }]
+                volumes: [{ emptyDir: {}, name: workspace }]
+          YAML
+
+          dump_job_diagnostics() {
+            echo "::group::wiki authz test gate diagnostics"
+            kubectl get job -n build "${JOB}" -o wide || true
+            PODS="$(kubectl get pods -n build -l "job-name=${JOB}" \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+            if [ -z "${PODS}" ]; then
+              echo "No pod was created for job/${JOB}"
+            else
+              while IFS= read -r POD; do
+                [ -n "${POD}" ] || continue
+                echo "--- pod/${POD} container states ---"
+                kubectl get pod -n build "${POD}" -o jsonpath='phase={.status.phase} reason={.status.reason} message={.status.message}{"\n"}{range .status.initContainerStatuses[*]}init/{.name}: waiting={.state.waiting.reason} terminated={.state.terminated.reason} exit={.state.terminated.exitCode} message={.state.terminated.message}{"\n"}{end}{range .status.containerStatuses[*]}container/{.name}: waiting={.state.waiting.reason} terminated={.state.terminated.reason} exit={.state.terminated.exitCode} message={.state.terminated.message}{"\n"}{end}' || true
+                CONTAINERS="$(kubectl get pod -n build "${POD}" \
+                  -o jsonpath='{range .spec.initContainers[*]}{.name}{"\n"}{end}{range .spec.containers[*]}{.name}{"\n"}{end}' 2>/dev/null || true)"
+                while IFS= read -r CONTAINER; do
+                  [ -n "${CONTAINER}" ] || continue
+                  echo "--- logs pod/${POD} container/${CONTAINER} ---"
+                  kubectl logs -n build "${POD}" -c "${CONTAINER}" \
+                    --timestamps --tail=300 ||
+                    echo "logs unavailable for pod/${POD} container/${CONTAINER}; state is shown above"
+                done <<< "${CONTAINERS}"
+                echo "--- describe pod/${POD} ---"
+                kubectl describe pod -n build "${POD}" || true
+              done <<< "${PODS}"
+            fi
+            echo "::endgroup::"
+          }
+
+          # Poll for Complete OR Failed — `kubectl wait --for=condition=complete`
+          # never returns on a FAILED job (PLS-207/PLAT-1219), which would hang the
+          # gate for the full timeout and lose the suite output to ttl reaping.
+          DEADLINE=$(( $(date +%s) + 1800 ))
+          while true; do
+            COMPLETE="$(kubectl get job -n build "${JOB}" -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || true)"
+            FAILED="$(kubectl get job -n build "${JOB}" -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || true)"
+            [ "${COMPLETE}" = "True" ] && break
+            if [ "${FAILED}" = "True" ]; then
+              echo "::error::wiki authz test gate FAILED — diagnostics follow"
+              dump_job_diagnostics
+              exit 1
+            fi
+            if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
+              echo "::error::wiki authz test gate timed out after 1800s"
+              dump_job_diagnostics
+              exit 1
+            fi
+            sleep 10
+          done
+          kubectl logs -n build "job/${JOB}" --all-containers --tail=120 || true
+  # Build+push the multi-arch image CONCURRENTLY with the test gate. Only the
+  # separate deploy job below gates the rollout on BOTH `test` and `build`, so
+  # the long kaniko build no longer waits serially behind the Django suite.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact triggering revision for monotonic release guard
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install kubectl + cluster access
+        run: |
+          set -euo pipefail
+          KUBECTL_ARCH="$(uname -m)"; case "$KUBECTL_ARCH" in x86_64) KUBECTL_ARCH=amd64;; aarch64) KUBECTL_ARCH=arm64;; *) echo "Unsupported runner arch: $KUBECTL_ARCH" >&2; exit 1;; esac
+          curl -fsSL -o kubectl "http://forgejo-http.origin.svc.cluster.local/api/packages/actions/generic/kubectl/v1.34.1/kubectl-${KUBECTL_ARCH}"
+          install -m 0755 kubectl /usr/local/bin/kubectl
+          mkdir -p "$HOME/.kube"
+          printf '%s' "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+      - name: Multi-arch build + verify
+        run: |
+          set -euo pipefail
+          SHORT="$(echo "${{ github.sha }}" | cut -c1-7)"
+          TAG="wiki-${SHORT}"
+          REG="registry.registry.svc.cluster.local:5000"
+          # The awk-generated Dockerfile lines below reference ${NPM_CONFIG_REGISTRY}/${PIP_*}
+          # which the SHELL expands here (set -u) — if unset, the whole step aborts before any
+          # build Job is created ("unbound variable" -> "no objects passed to apply"), so wiki
+          # never ships (2026-06-29 outage). Define them with the same defaults as the ARG lines.
+          NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-http://npm-cache.registry.svc.cluster.local:4873/}"
+          PIP_INDEX_URL="${PIP_INDEX_URL:-http://pip-cache.registry.svc.cluster.local/simple/}"
+          PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-pip-cache.registry.svc.cluster.local}"
+          echo "Multi-arch build shizuha-wiki:${TAG} (amd64 + arm64)"
+
+          render_build_job() {  # $1=arch
+            local ARCH="$1"
+            cat <<YAML
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ci-build-wiki-${SHORT}-${ARCH}
+            namespace: build
+            labels: { app: ci-build, shizuha.io/orig-task: ORIG-7 }
+          spec:
+            backoffLimit: 0
+            ttlSecondsAfterFinished: 300
+            template:
+              spec:
+                restartPolicy: Never
+                nodeSelector: { kubernetes.io/arch: ${ARCH} }
+                tolerations:
+                  - { key: node.shizuha/workstation, operator: Exists, effect: NoSchedule }
+                  - { key: shizuha.com/inference-paused, operator: Exists, effect: NoSchedule }
+                  # amd64 kaniko on i9-ws times out pushing to registry ClusterIP;
+                  # s1 overlay works and carries operator=unschedulable. CI tolerates
+                  # the operator-hold taint instead of removing it.
+                  - { key: operator, operator: Equal, value: unschedulable, effect: NoSchedule }
+                affinity:
+                  nodeAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                      nodeSelectorTerms:
+                      - matchExpressions:
+                        - { key: node-role.kubernetes.io/control-plane, operator: DoesNotExist }
+                        # i9-ws overlay to ns registry is i/o timeout. Keep excluded until
+                        # ClusterIP/FORWARD on i9-ws is actually fixed.
+                        - { key: kubernetes.io/hostname, operator: NotIn, values: [i9-ws] }
+                initContainers:
+                  - name: git-clone
+                    image: alpine/git:2.43.0
+                    command: ["/bin/sh","-c"]
+                    args:
+                      - |
+                        set -e
+                        git clone --depth=50 http://x-token-auth:\${GIT_PASSWORD}@forgejo-http.origin.svc.cluster.local/shizuha-labs/wiki.git /workspace/src
+                        cd /workspace/src && (git checkout ${{ github.sha }} 2>/dev/null || echo "sha not in shallow clone; building default HEAD")
+                        if [ -f /workspace/src/Dockerfile ]; then
+                          awk '''
+                            /^FROM[[:space:]]/ {
+                              print
+                              print "ARG NPM_CONFIG_REGISTRY=http://npm-cache.registry.svc.cluster.local:4873/"
+                              print "ARG PIP_INDEX_URL=http://pip-cache.registry.svc.cluster.local/simple/"
+                              print "ARG PIP_TRUSTED_HOST=pip-cache.registry.svc.cluster.local"
+                              print "ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}"
+                              print "ENV PIP_INDEX_URL=${PIP_INDEX_URL}"
+                              print "ENV PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}"
+                              next
+                            }
+                            { print }
+                          ''' /workspace/src/Dockerfile > /workspace/src/Dockerfile.cache-wired
+                          mv /workspace/src/Dockerfile.cache-wired /workspace/src/Dockerfile
+                        fi
+                    env:
+                      - name: GIT_PASSWORD
+                        valueFrom: { secretKeyRef: { name: forgejo-token, key: password } }
+                    volumeMounts: [{ mountPath: /workspace, name: workspace }]
+                containers:
+                  - name: kaniko
+                    image: gcr.io/kaniko-project/executor:v1.23.2
+                    args:
+                      - --context=dir:///workspace/src
+                      - --dockerfile=/workspace/src/Dockerfile
+                      - --destination=${REG}/shizuha-wiki:${TAG}-${ARCH}
+                      - --cleanup
+                      - --insecure
+                      - --skip-tls-verify
+                      - --insecure-pull
+                      - --registry-mirror=mirror-dockerhub.registry.svc.cluster.local:5000
+                      - --build-arg=NPM_CONFIG_REGISTRY=http://npm-cache.registry.svc.cluster.local:4873/
+                      - --build-arg=PIP_INDEX_URL=http://pip-cache.registry.svc.cluster.local/simple/
+                      - --build-arg=PIP_TRUSTED_HOST=pip-cache.registry.svc.cluster.local
+                      - --cache=true
+                      - --cache-repo=${REG}/kaniko-cache/wiki-deploy-${ARCH}
+                      - --cache-copy-layers=true
+                      - --cache-ttl=336h
+                      - --compressed-caching=false
+                    volumeMounts: [{ mountPath: /workspace, name: workspace }]
+                volumes: [{ emptyDir: {}, name: workspace }]
+          YAML
+          }
+
+          # Launch both arch builds in parallel
+          BUILD_GUARD_CONFIGMAP="origin-ci-build-guard-650fec631781"
+          BUILD_GUARD_SHA256="650fec631781edce0e4980f0fb07b12ab78b67b1faf780b214d12a40f9dddcf6"
+          BUILD_GUARD="${RUNNER_TEMP:-/tmp}/origin-ci-build-guard.py"
+          kubectl get "configmap/${BUILD_GUARD_CONFIGMAP}" -n origin \
+            -o jsonpath='{.data.guard\.py}' >"$BUILD_GUARD"
+          echo "${BUILD_GUARD_SHA256}  ${BUILD_GUARD}" | sha256sum -c -
+          job_name_for_arch() {
+            local ARCH="$1"
+            render_build_job "$ARCH" | awk '$1 == "name:" { print $2; exit }'
+          }
+          AMD64_JOB="$(job_name_for_arch amd64)"
+          ARM64_JOB="$(job_name_for_arch arm64)"
+          test -n "$AMD64_JOB" -a -n "$ARM64_JOB"
+          cleanup_build_pair() {
+            python3 "$BUILD_GUARD" cleanup \
+              --namespace build --job "$AMD64_JOB" --job "$ARM64_JOB"
+          }
+          cleanup_on_failure() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then cleanup_build_pair || true; fi
+            exit "$rc"
+          }
+          trap cleanup_on_failure EXIT INT TERM
+          python3 "$BUILD_GUARD" preflight --arch amd64 --arch arm64
+          cleanup_build_pair
+          render_build_job amd64 | kubectl apply -f -
+          render_build_job arm64 | kubectl apply -f -
+          python3 "$BUILD_GUARD" wait-pair --namespace build \
+            --job "amd64=${AMD64_JOB}" --job "arm64=${ARM64_JOB}" \
+            --timeout-seconds 1800
+          trap - EXIT INT TERM
+
+          wait_job() {  # $1=arch
+            local J="ci-build-wiki-${SHORT}-$1"
+            kubectl wait -n build --for=condition=complete "job/${J}" --timeout=1800s &
+            local WP=$!
+            while kill -0 $WP 2>/dev/null; do
+              if kubectl get "job/${J}" -n build -o jsonpath='{.status.failed}' | grep -q '[1-9]'; then
+                echo "::error::kaniko $1 build failed"; kubectl logs -n build "job/${J}" --all-containers --tail=40 || true; exit 1; fi
+              sleep 5
+            done; wait $WP
+          }
+          wait_job amd64 &
+          WAIT_AMD64_PID=$!
+          wait_job arm64 &
+          WAIT_ARM64_PID=$!
+          WAIT_FAILED=0
+          wait "${WAIT_AMD64_PID}" || WAIT_FAILED=1
+          wait "${WAIT_ARM64_PID}" || WAIT_FAILED=1
+          if [ "${WAIT_FAILED}" -ne 0 ]; then
+            exit 1
+          fi
+          echo "Both arch builds done."
+
+          # Combine into a multi-arch manifest list with crane
+          cat <<YAML | kubectl apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ci-manifest-wiki-${SHORT}
+            namespace: build
+            labels: { app: ci-manifest, shizuha.io/orig-task: ORIG-7 }
+          spec:
+            backoffLimit: 0
+            ttlSecondsAfterFinished: 300
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: crane
+                    image: gcr.io/go-containerregistry/crane:latest
+                    # Image entrypoint IS the crane binary (distroless, no shell) — pass args directly.
+                    args:
+                      - index
+                      - append
+                      - --insecure
+                      - -t
+                      - ${REG}/shizuha-wiki:${TAG}
+                      - -m
+                      - ${REG}/shizuha-wiki:${TAG}-amd64
+                      - -m
+                      - ${REG}/shizuha-wiki:${TAG}-arm64
+          YAML
+          kubectl wait -n build --for=condition=complete "job/ci-manifest-wiki-${SHORT}" --timeout=300s || {
+            echo "::error::manifest combine failed"; kubectl logs -n build "job/ci-manifest-wiki-${SHORT}" --tail=30 || true; exit 1; }
+
+          # Deploy the multi-arch manifest list
+          verify_manifest() {
+            local REPO="$1"
+            local IMAGE_TAG="$2"
+            local JOB="ci-verify-${REPO}-${SHORT}"
+            cat <<YAML | kubectl apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ${JOB}
+            namespace: build
+            labels: { app: ci-verify, service: ${REPO} }
+          spec:
+            backoffLimit: 0
+            ttlSecondsAfterFinished: 300
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: manifest-check
+                    image: python:3.12-alpine
+                    command: ["python", "-c"]
+                    args:
+                      - |
+                        import json, urllib.request
+                        url = "http://${REG}/v2/${REPO}/manifests/${IMAGE_TAG}"
+                        accept = ",".join([
+                            "application/vnd.oci.image.index.v1+json",
+                            "application/vnd.docker.distribution.manifest.list.v2+json",
+                        ])
+                        req = urllib.request.Request(url, headers={"Accept": accept})
+                        with urllib.request.urlopen(req, timeout=30) as resp:
+                            manifest = json.load(resp)
+                        platforms = {
+                            f"{m.get('platform', {}).get('os')}/{m.get('platform', {}).get('architecture')}"
+                            for m in manifest.get("manifests", [])
+                        }
+                        missing = {"linux/amd64", "linux/arm64"} - platforms
+                        print(f"{url} platforms={sorted(platforms)}")
+                        if missing:
+                            raise SystemExit(f"missing required platform(s): {sorted(missing)}")
+          YAML
+            kubectl wait -n build --for=condition=complete "job/${JOB}" --timeout=120s || {
+              echo "::error::manifest verification failed"
+              kubectl logs -n build "job/${JOB}" --tail=80 || true
+              exit 1
+            }
+            kubectl logs -n build "job/${JOB}" --tail=20 || true
+          }
+          verify_manifest "shizuha-wiki" "${TAG}"
+
+  # Rollout gate: depends on BOTH the test suite AND the image build. Neither a
+  # red suite nor a failed build can reach the cluster, but they now run in
+  # parallel instead of build waiting behind test.
+  deploy:
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact triggering revision for monotonic release guard
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install kubectl + cluster access
+        run: |
+          set -euo pipefail
+          KUBECTL_ARCH="$(uname -m)"; case "$KUBECTL_ARCH" in x86_64) KUBECTL_ARCH=amd64;; aarch64) KUBECTL_ARCH=arm64;; *) echo "Unsupported runner arch: $KUBECTL_ARCH" >&2; exit 1;; esac
+          curl -fsSL -o kubectl "http://forgejo-http.origin.svc.cluster.local/api/packages/actions/generic/kubectl/v1.34.1/kubectl-${KUBECTL_ARCH}"
+          install -m 0755 kubectl /usr/local/bin/kubectl
+          mkdir -p "$HOME/.kube"
+          printf '%s' "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+      - name: Deploy multi-arch image + verify
+        run: |
+          set -euo pipefail
+          SHORT="$(echo "${{ github.sha }}" | cut -c1-7)"
+          TAG="wiki-${SHORT}"
+          REG="registry.registry.svc.cluster.local:5000"
+          set +e
+          .forgejo/scripts/monotonic-release-guard.sh shizuha shizuha-wiki "${{ github.sha }}"
+          GUARD_RC="$?"
+          set -e
+          if [ "${GUARD_RC}" = 10 ]; then exit 0; fi
+          if [ "${GUARD_RC}" != 0 ]; then exit "${GUARD_RC}"; fi
+          PREV="$(kubectl get deploy -n shizuha shizuha-wiki -o jsonpath='{.spec.template.spec.containers[?(@.name=="shizuha-wiki")].image}' 2>/dev/null || true)"
+          if [ -n "${PREV}" ]; then
+            echo "Current image: ${PREV}"
+            echo "Rollback: the pre-release container spec is captured below and restored automatically if rollout fails."
+          fi
+
+          # WIKI-40: change image + shared-storage credentials + deep readiness in
+          # ONE pod-template patch. Applying the env first would briefly roll the
+          # previous image, whose optional shizuha_storage import is not packaged.
+          # Applying the image first would admit pod-local writes until a second
+          # rollout. One patch preserves the multi-replica storage invariant.
+          command -v jq >/dev/null
+          PREV_CONTAINERS="$(kubectl get deploy -n shizuha shizuha-wiki -o json | jq -c '.spec.template.spec.containers')"
+          # The retired ConfigMap must not replace the image's tested verifier.
+          # Preserve the original container spec for exact automatic rollback.
+          NEXT_CONTAINERS="$(printf '%s' "${PREV_CONTAINERS}" | python3 .forgejo/scripts/runtime-auth-contract.py sanitize | jq -c --arg image "localhost:30500/shizuha-wiki:${TAG}" '
+            map(if .name == "shizuha-wiki" then
+              .image = $image
+              | .resources = {
+                  "requests":{"cpu":"200m","memory":"768Mi"},
+                  "limits":{"cpu":"1","memory":"2Gi"}
+                }
+              | .env = (
+                  ((.env // []) | map(select(
+                    .name != "AWS_STORAGE_BUCKET_NAME"
+                    and .name != "AWS_S3_ENDPOINT_URL"
+                    and .name != "AWS_ACCESS_KEY_ID"
+                    and .name != "AWS_SECRET_ACCESS_KEY"
+                    and .name != "WIKI_REQUIRE_SHARED_MEDIA_STORAGE"
+                  )))
+                  + [
+                    {"name":"AWS_STORAGE_BUCKET_NAME","value":"shizuha-wiki"},
+                    {"name":"AWS_S3_ENDPOINT_URL","value":"http://minio.shizuha.svc.cluster.local:9000"},
+                    {"name":"AWS_ACCESS_KEY_ID","valueFrom":{"secretKeyRef":{"name":"shizuha-secrets","key":"minio-root-user"}}},
+                    {"name":"AWS_SECRET_ACCESS_KEY","valueFrom":{"secretKeyRef":{"name":"shizuha-secrets","key":"minio-root-password"}}},
+                    {"name":"WIKI_REQUIRE_SHARED_MEDIA_STORAGE","value":"1"}
+                  ]
+                )
+              | .readinessProbe = {
+                  "exec":{"command":["python","manage.py","check_attachment_storage"]},
+                  "initialDelaySeconds":5,
+                  "periodSeconds":30,
+                  "timeoutSeconds":10,
+                  "failureThreshold":3,
+                  "successThreshold":1
+                }
+            else . end)
+          ')"
+          RELEASE_PATCH="$(jq -cn --argjson containers "${NEXT_CONTAINERS}" '{spec:{template:{spec:{containers:$containers}}}}')"
+          ROLLBACK_PATCH="$(jq -cn --argjson containers "${PREV_CONTAINERS}" '{spec:{template:{spec:{containers:$containers}}}}')"
+          dump_wiki_rollout_diagnostics() {
+            echo "::group::wiki rollout diagnostics"
+            kubectl -n shizuha get deploy shizuha-wiki -o wide || true
+            kubectl -n shizuha get rs -l app.kubernetes.io/name=shizuha-wiki,app.kubernetes.io/component=backend -o wide || true
+            kubectl -n shizuha get pods -l app.kubernetes.io/name=shizuha-wiki,app.kubernetes.io/component=backend -o wide || true
+            kubectl -n shizuha describe deploy shizuha-wiki | tail -80 || true
+            PODS="$(kubectl -n shizuha get pods \
+              -l app.kubernetes.io/name=shizuha-wiki,app.kubernetes.io/component=backend \
+              -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+            while IFS= read -r POD; do
+              [ -n "${POD}" ] || continue
+              echo "--- describe pod/${POD} ---"
+              kubectl -n shizuha describe pod "${POD}" || true
+              echo "--- logs pod/${POD} ---"
+              kubectl -n shizuha logs "${POD}" --tail=120 --timestamps || true
+            done <<< "${PODS}"
+            kubectl -n shizuha get events --sort-by=.lastTimestamp | tail -40 || true
+            echo "::endgroup::"
+          }
+          kubectl patch deploy -n shizuha shizuha-wiki --type=merge -p "${RELEASE_PATCH}"
+          # progressDeadlineSeconds on this Deployment is 600s. A 300s
+          # kubectl wait fired first and left 6f2e86e attempts with no pod
+          # evidence; a later retry then failed in 2s on the stale
+          # ProgressDeadlineExceeded condition.
+          if ! kubectl rollout status -n shizuha deploy/shizuha-wiki --timeout=600s; then
+            echo "::error::shared-storage rollout failed; restoring exact pre-release container spec"
+            dump_wiki_rollout_diagnostics
+            kubectl patch deploy -n shizuha shizuha-wiki --type=merge -p "${ROLLBACK_PATCH}"
+            kubectl rollout status -n shizuha deploy/shizuha-wiki --timeout=600s || true
+            exit 1
+          fi
+          LIVE="$(kubectl get deploy -n shizuha shizuha-wiki -o jsonpath='{.spec.template.spec.containers[0].image}')"
+          echo "Live: ${LIVE}"; echo "${LIVE}" | grep -q "${TAG}" && echo "OK multi-arch ${TAG}" || { echo "::error::image mismatch"; exit 1; }
+          READY_COMMAND="$(kubectl get deploy -n shizuha shizuha-wiki -o jsonpath='{.spec.template.spec.containers[?(@.name=="shizuha-wiki")].readinessProbe.exec.command}')"
+          printf '%s' "${READY_COMMAND}" | grep -q 'check_attachment_storage'
+          PODS="$(python3 .forgejo/scripts/current-rollout-pods.py --image "localhost:30500/shizuha-wiki:${TAG}")"
+          EXPECTED_AUTH="$(python3 .forgejo/scripts/runtime-auth-contract.py fingerprint)"
+          for POD in ${PODS}; do
+            kubectl exec -n shizuha "${POD}" -- python manage.py check_attachment_storage
+            ACTUAL_AUTH="$(kubectl exec -i -n shizuha "${POD}" -- python - fingerprint < .forgejo/scripts/runtime-auth-contract.py)"
+            printf '%s' "${ACTUAL_AUTH}" | python3 .forgejo/scripts/runtime-auth-contract.py verify --expected "${EXPECTED_AUTH}"
+          done
+          kubectl annotate -n shizuha deploy/shizuha-wiki shizuha.io/last-successful-sha="${{ github.sha }}" --overwrite
+          # DeploymentEvent is post-rollout evidence, not part of the rollout
+          # transaction. Keep it fail-loud in the log without rewriting a
+          # converged deployment as failed when task correlation is missing.
+          if ! .forgejo/scripts/record-deployment-event.sh \
+            WIKI shizuha shizuha-wiki backend shizuha-wiki \
+            "localhost:30500/shizuha-wiki:${TAG}" \
+            /wiki/,/wiki/spaces; then
+            echo "::warning::backend rollout succeeded but DeploymentEvent recording failed"
+          fi

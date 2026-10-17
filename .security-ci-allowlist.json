@@ -1,0 +1,26 @@
+{
+  "_comment": "security-ci accepted false-positive suppressions for shizuha-labs/wiki. Each entry MUST carry a justification and the PLAT ledger task. Reviewed disposition only \u2014 never suppress a real finding.",
+  "suppressions": [
+    {
+      "source_id": "security-ci:5dcdfddcac0ddcd5ffd76993",
+      "rule": "python.jwt.security.jwt-hardcode.jwt-python-hardcoded-secret",
+      "location": "mcp-server/test_token_verifier.py:28",
+      "reason": "False positive. The literal \"secret\" is a test fixture in test_hs256_shared_secret_token_is_rejected, whose entire purpose is to prove the verifier REJECTS an HS256 shared-secret token (Shizuha ID uses asymmetric RS256/JWKS). It is not a production credential and never reaches runtime \u2014 it is the malicious input the security control is asserted against.",
+      "disposition": "accepted-false-positive",
+      "ledger_task": "PLAT-4768",
+      "owner": "haru@shizuha.com",
+      "reviewed_by": "haru@shizuha.com",
+      "reviewed_at": "2026-07-17"
+    },
+    {
+      "source_id": "security-ci:72f61c98032b46dfaf0202f3",
+      "rule": "python.jwt.security.jwt-hardcode.jwt-python-hardcoded-secret",
+      "location": "mcp-server/test_token_verifier.py:90",
+      "reason": "False positive (PLAT-6729). Same accepted-false-positive class as source_id 5dcdfddcac0ddcd5ffd76993: the literal \"secret\" is a test fixture in test_hs256_shared_secret_token_is_rejected, whose entire purpose is to prove the verifier REJECTS an HS256 shared-secret token (Shizuha ID uses asymmetric RS256/JWKS). Never reaches runtime.",
+      "disposition": "accepted-false-positive",
+      "ledger_task": "PLAT-6729",
+      "reviewed_by": "kai@shizuha.com",
+      "reviewed_at": "2026-08-23"
+    }
+  ]
+}
