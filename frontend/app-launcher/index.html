@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Shizuha Atlas — explore your architecture, design the next layer, and navigate with an agent guide.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Shizuha Atlas</title>
+  <link rel="stylesheet" href="./atlas.css">
+  <script type="module" src="./navigation.mjs"></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Skip to workspace</a>
+  <div class="ambient" aria-hidden="true"></div>
+  <div class="app-shell">
+    <header class="app-header">
+      <a class="brand" href="/atlas" data-atlas-path="/atlas" target="_top" aria-label="Shizuha Atlas — explore the system">
+        <svg class="brand-mark" viewBox="0 0 44 44" fill="none" aria-hidden="true"><path d="M22 3 40 13.5v17L22 41 4 30.5v-17L22 3Z" stroke="currentColor" stroke-width="1.5"/><path d="m22 12 10 18H12l10-18Z" fill="currentColor"/><path d="m22 3 0 9M4 30.5 12 30m20 0 8 .5" stroke="currentColor" stroke-width="1.5"/></svg>
+        <span>shizuha<span class="brand-name">Atlas<span class="brand-dot">.</span></span></span>
+      </a>
+      <div class="header-context"><span class="context-icon" aria-hidden="true">◈</span> Your architecture workspace</div>
+      <a class="header-link" href="/atlas/editor" data-atlas-path="/atlas/editor" target="_top">Open design studio <span aria-hidden="true">↗</span></a>
+    </header>
+
+    <main id="workspace">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <div class="eyebrow"><span></span> THE BIG PICTURE. EVERY SMALL DETAIL.</div>
+          <h1 id="hero-title">See the system.<br><span>Shape what’s next.</span></h1>
+          <p class="hero-description">A living map for the way your system fits together. Explore the whole architecture, open a component, or build something entirely new.</p>
+          <div class="hero-chips" aria-label="Atlas capabilities"><span>Zoomable architecture</span><span>Human + agent editing</span><span>Portable by design</span></div>
+        </div>
+        <div class="map-preview" aria-label="Illustration of a system connected to its experience, services and data layers. Not a live system map." role="img">
+          <div class="map-topline"><span class="map-label">ONE SYSTEM · MANY LEVELS</span><span class="map-tag">Concept view</span></div>
+          <svg viewBox="0 0 610 365" class="system-map" aria-hidden="true">
+            <defs><linearGradient id="atlas-line" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8a7af5"/><stop offset="1" stop-color="#4ac5d3"/></linearGradient><radialGradient id="atlas-halo"><stop stop-color="#7765db" stop-opacity=".2"/><stop offset="1" stop-color="#7765db" stop-opacity="0"/></radialGradient></defs>
+            <ellipse cx="305" cy="179" rx="230" ry="168" fill="url(#atlas-halo)"/>
+            <g class="map-connections"><path d="M305 111V141H115V173M305 141V173M305 141H495V173"/><path d="M115 225v44h91M305 225v44M495 225v44h-91"/><path class="map-crosslink" d="M188 199h42M378 199h42"/></g>
+            <g class="map-root"><rect x="215" y="45" width="180" height="66" rx="14"/><path d="m240 71 8-5 8 5v10l-8 5-8-5V71Z"/><text x="270" y="72" class="map-node-kicker">SYSTEM</text><text x="270" y="91" class="map-node-title">Your architecture</text><circle cx="377" cy="61" r="3"/></g>
+            <g class="map-node"><rect x="40" y="173" width="150" height="53" rx="10"/><circle cx="61" cy="198" r="5"/><text x="76" y="203">Experience</text><text x="168" y="203" class="map-expand">+</text></g>
+            <g class="map-node map-node-accent"><rect x="230" y="173" width="150" height="53" rx="10"/><circle cx="251" cy="198" r="5"/><text x="266" y="203">Services</text><text x="358" y="203" class="map-expand">+</text></g>
+            <g class="map-node"><rect x="420" y="173" width="150" height="53" rx="10"/><circle cx="441" cy="198" r="5"/><text x="456" y="203">Data</text><text x="548" y="203" class="map-expand">+</text></g>
+            <g class="map-detail"><rect x="206" y="249" width="198" height="43" rx="9"/><text x="224" y="275">Components</text><circle cx="324" cy="270" r="2"/><text x="336" y="275">Processes</text></g>
+            <g class="map-specks"><circle cx="115" cy="141" r="3"/><circle cx="495" cy="141" r="3"/><circle cx="305" cy="141" r="4"/><circle cx="305" cy="324" r="3"/><path d="M305 292v24"/></g>
+          </svg>
+          <div class="map-caption"><span class="caption-orbit" aria-hidden="true">⌖</span> From the whole system to the work inside it.</div>
+        </div>
+      </section>
+
+      <section class="entry-grid" aria-label="Choose your workspace">
+        <a class="entry-card entry-explore" href="/atlas" data-atlas-path="/atlas" target="_top">
+          <div class="entry-icon" aria-hidden="true"><svg viewBox="0 0 28 28" fill="none"><circle cx="14" cy="14" r="10"/><path d="m18.5 9.5-3 6-6 3 3-6 6-3Z"/></svg></div>
+          <div class="entry-copy"><span class="eyebrow">UNDERSTAND WHAT EXISTS</span><h2>Explore the system <span aria-hidden="true">↗</span></h2><p>Follow relationships. Expand the layers. Use Zen view to focus on what matters.</p></div>
+          <span class="entry-action">Open system Atlas <span aria-hidden="true">→</span></span>
+        </a>
+        <a class="entry-card entry-design" href="/atlas/editor" data-atlas-path="/atlas/editor" target="_top">
+          <div class="entry-icon" aria-hidden="true"><svg viewBox="0 0 28 28" fill="none"><rect x="4" y="4" width="8" height="8" rx="2"/><rect x="16" y="16" width="8" height="8" rx="2"/><path d="M12 8h8v8M8 16v8m-4-4h8"/></svg></div>
+          <div class="entry-copy"><span class="eyebrow">DESIGN WHAT COMES NEXT</span><h2>Start a new design <span aria-hidden="true">↗</span></h2><p>Add services, nest components and connect ideas in a complete visual design studio.</p></div>
+          <span class="entry-action">Open design studio <span aria-hidden="true">→</span></span>
+        </a>
+      </section>
+
+      <section class="capabilities" aria-labelledby="capabilities-title">
+        <div class="section-heading"><h2 id="capabilities-title">More than a diagram.</h2><p>A workspace that moves between ideas, people and agents.</p></div>
+        <div class="capability-grid">
+          <article><span class="feature-number">01 / EXPRESS</span><h3>Native diagram languages</h3><p>Sequence, ER, state, timeline and more. Edit Mermaid source alongside your architecture.</p></article>
+          <article><span class="feature-number">02 / TAKE IT WITH YOU</span><h3>Your design, offline</h3><p>Export editable HTML or portable JSON. A shared design does not need its own Atlas server.</p></article>
+          <article><span class="feature-number">03 / BUILD TOGETHER</span><h3>Collaborate deliberately</h3><p>Opt into live collaboration. Independent changes merge; conflicts stay visible and your edits stay intact.</p></article>
+          <article><span class="feature-number">04 / ASK THE MAP</span><h3>An agent at your side</h3><p>Ask your organization’s blueprint Guide where to look. You choose which navigation suggestions to apply.</p></article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer"><div><span class="footer-mark" aria-hidden="true">◈</span> SHIZUHA ATLAS <span class="footer-divider">/</span> Architecture, at every scale.</div><span>Opens Atlas with your Shizuha ID</span></footer>
+  </div>
+  <a class="guide-launcher" href="/atlas?guide=1" data-atlas-path="/atlas" data-atlas-guide="true" target="_top"><span class="guide-symbol" aria-hidden="true">✦</span><span><strong>Ask Atlas Guide</strong><small>Your blueprint navigation agent</small></span><span class="guide-arrow" aria-hidden="true">↗</span></a>
+</body>
+</html>

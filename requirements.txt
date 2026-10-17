@@ -1,0 +1,36 @@
+Django>=4.2.0,<5.0
+djangorestframework>=3.14.0
+django-celery-beat>=2.5.0
+celery>=5.3.0
+redis>=4.5.0
+psycopg2-binary>=2.9.0
+gunicorn>=21.0.0
+django-cors-headers>=4.0.0
+requests>=2.31.0
+drf-spectacular>=0.27.0
+# Authentication
+djangorestframework-simplejwt>=5.3.0
+django-allauth>=65.14.1
+dj-rest-auth>=5.0.0
+PyJWT>=2.13.0
+cryptography>=41.0.0
+# File handling
+Pillow>=12.3.0
+python-magic>=0.4.27
+# S3/MinIO storage
+boto3>=1.28.0
+django-storages>=1.14.0
+# shizuha-storage is installed at runtime via docker-entrypoint.sh (volume mount)
+# Markdown and text processing
+markdown>=3.5.0
+bleach>=6.0.0
+# Full-text search is built into Django (django.contrib.postgres)
+
+# MCP Server
+# v1 remains the supported production API.  The SDK publishes v2 under the
+# same package name, so keep rebuilds from silently taking a breaking major.
+mcp>=1.28.1,<2
+
+# PLAT-4768: pin patched transitive (advisory fixed-in)
+idna>=3.15
+python-multipart>=0.0.31

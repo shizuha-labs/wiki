@@ -1,0 +1,10 @@
+{
+  "@shizuha/editor": {
+    "version": "1.2.1",
+    "sha256": "8787d2461a57a3e0eaa3ff602dd05319d645c4186e3328333d70296d3a593947"
+  },
+  "@shizuha/ui": {
+    "version": "1.2.6",
+    "sha256": "1d8492afd976a396b8ae1b2e9659841ff5b8ac2248cf24ed241b86e9fb7b2a69"
+  }
+}
