@@ -12,6 +12,6 @@ if (!outside(resolve(output))) throw new Error('Build artifacts must stay outsid
 await mkdir(dirname(resolve(output)), { recursive: true })
 const target = resolve(await realpath(dirname(resolve(output))), basename(output))
 if (!outside(target)) throw new Error('Build artifacts must stay outside the repository')
-const bundle = execFileSync('tar', ['--mtime=@0', '--owner=0', '--group=0', '--numeric-owner', '-czf', '-', 'index.html', 'atlas.css', 'navigation.mjs'], { cwd: root, maxBuffer: 2 * 1024 * 1024 })
+const bundle = execFileSync('tar', ['--mtime=@0', '--owner=0', '--group=0', '--numeric-owner', '-czf', '-', 'index.html', 'atlas.css', 'navigation.mjs', 'og-image.png'], { cwd: root, maxBuffer: 2 * 1024 * 1024 })
 await writeFile(target, bundle, { flag: 'wx', mode: 0o644 })
 console.log(`Atlas launcher bundle: ${target} (${bundle.length} bytes)`)

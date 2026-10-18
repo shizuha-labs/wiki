@@ -13,4 +13,13 @@ assert.doesNotMatch(html, /<iframe|https?:\/\/|<script[^>]*>[^<]+<\/script>/i)
 assert.match(html, /data-atlas-guide="true"/)
 assert.match(html, /Concept view/)
 assert.match(html, /not a live system map/i)
-console.log('Atlas launcher: fixed destinations, strict organization scope, inert preview and offline assets verified')
+// BUILD-29: social-card meta. og:image stays a bundle-relative asset (the
+// no-absolute-URL invariant above covers the new meta too) and the card is
+// summary_large_image so shared links render the glass card, not a bare URL.
+assert.match(html, /<meta property="og:title" content="Shizuha Atlas">/)
+assert.match(html, /<meta property="og:type" content="website">/)
+assert.match(html, /<meta property="og:url" content="\/apps\/shizuha\/atlas\/">/)
+assert.match(html, /<meta property="og:image" content="\.\/og-image\.png">/)
+assert.match(html, /<meta name="twitter:card" content="summary_large_image">/)
+await readFile(new URL('./og-image.png', import.meta.url), 'utf8').catch(() => { throw new Error('og-image.png missing from the launcher directory') })
+console.log('Atlas launcher: fixed destinations, strict organization scope, inert preview, offline assets and social-card meta verified')
