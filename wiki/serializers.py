@@ -129,7 +129,43 @@ class LabelUsageSerializer(LabelSerializer):
         fields = LabelSerializer.Meta.fields + ['pages_count']
 
 
-class PageListSerializer(serializers.ModelSerializer):
+_VERIFICATION_FIELD_NAMES = ('verify_owner', 'verified_by', 'verified_at', 'verified')
+
+
+def _drop_verification_fields_for_anonymous(fields, request):
+    """SCS-239 / WIKI-126 guard: verification metadata NEVER reaches
+    unauthenticated callers — enforced server-side by OMITTING the fields
+    from serialized responses, never by SPA-side hiding (the design's hard
+    requirement, WIKI-123 §6). Shared by every surface that carries badges:
+    page detail, page list (search rows, backlinks, children, related)."""
+    user = getattr(request, 'user', None) if request is not None else None
+    if user is None or not getattr(user, 'is_authenticated', False):
+        for _name in _VERIFICATION_FIELD_NAMES:
+            fields.pop(_name, None)
+    return fields
+
+
+class VerificationBadgeFieldsMixin(serializers.Serializer):
+    """Adds the verification badge fields (WIKI-123 §2/§6) to a Page
+    serializer plus the SCS-239 anonymous-omission guard. `verified` is
+    derived (verified_at is not None); the raw FK ids stay internal-ish but
+    are equally guarded."""
+
+    verify_owner = serializers.IntegerField(source='verify_owner_id', read_only=True)
+    verified_by = serializers.IntegerField(source='verified_by_id', read_only=True)
+    verified_at = serializers.DateTimeField(read_only=True)
+    verified = serializers.SerializerMethodField()
+
+    def get_verified(self, obj):
+        return obj.verified_at is not None
+
+    def get_fields(self):
+        fields = super().get_fields()
+        return _drop_verification_fields_for_anonymous(
+            fields, self.context.get('request'))
+
+
+class PageListSerializer(VerificationBadgeFieldsMixin, serializers.ModelSerializer):
     space_key = serializers.CharField(source='space.key', read_only=True)
     space_name = serializers.CharField(source='space.name', read_only=True)
     organization_id = serializers.IntegerField(source='space.organization_id', read_only=True)
@@ -141,6 +177,7 @@ class PageListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'space', 'space_key', 'space_name', 'organization_id',
             'parent', 'title', 'slug', 'status', 'version', 'labels',
+            'verified', 'verify_owner', 'verified_by', 'verified_at',
             'position', 'view_count', 'children_count', 'created_by_id',
             'created_at', 'updated_at'
         ]
@@ -172,14 +209,10 @@ class PageDetailSerializer(serializers.ModelSerializer):
 
     def get_fields(self):
         fields = super().get_fields()
-        request = self.context.get('request')
-        user = getattr(request, 'user', None) if request is not None else None
-        if user is None or not getattr(user, 'is_authenticated', False):
-            # WIKI-124 + SCS-239: verification metadata never renders on
-            # anonymous read paths — server-side field omission, not SPA hiding.
-            for _name in ('verify_owner', 'verified_by', 'verified_at', 'verified'):
-                fields.pop(_name, None)
-        return fields
+        # WIKI-124 + SCS-239 + WIKI-126: single shared guard (same omission
+        # rule as the list/search surfaces — server-side, never SPA hiding).
+        return _drop_verification_fields_for_anonymous(
+            fields, self.context.get('request'))
 
     class Meta:
         model = Page
@@ -415,3 +448,13 @@ class SearchResultSerializer(serializers.Serializer):
     labels = serializers.ListField(child=serializers.DictField(), required=False)
     updated_at = serializers.DateTimeField()
     rank = serializers.FloatField(required=False)
+    # WIKI-126: verification badge fields on search rows. Required=False so
+    # the serializer itself stays lenient; the ANONYMOUS-OMISSION guard below
+    # is the SCS-239 enforcement (server-side, never SPA hiding).
+    verified = serializers.BooleanField(required=False)
+    verified_at = serializers.DateTimeField(required=False)
+
+    def get_fields(self):
+        fields = super().get_fields()
+        return _drop_verification_fields_for_anonymous(
+            fields, self.context.get('request'))

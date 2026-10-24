@@ -6,6 +6,7 @@ import { pagesApi, commentsApi, attachmentsApi } from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { AttachmentPanel } from '../components/attachments'
 import { formatDistanceToNow, format } from 'date-fns'
+import { VerificationBadge, stalenessLabel } from '../components/VerificationBadge'
 import { useAuth } from '../contexts/AuthContext'
 import { attachmentIdFromMediaSrc, markdownHeadings, renderMarkdownContent, renderSafeImageTag, renderTableOfContents, sanitizePageContent, shouldRenderMarkdown, tipTapHeadings, WIKI_MERMAID_CLASS, renderAtlasPlaceholder } from '../utils/pageContent'
 import { hydrateWikiMermaid } from '../utils/mermaidHydrate'
@@ -213,6 +214,18 @@ export default function PageView() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{page.title}</h1>
+          {/* WIKI-126: page-header verification badge + staleness. The server
+              omits verification fields for anonymous callers; undefined → the
+              badge renders nothing (SCS-239, server-side by construction). */}
+          {page.verified !== undefined && (
+            <div className="mt-1.5">
+              <VerificationBadge
+                verified={page.verified}
+                verifiedAt={page.verified_at}
+                updatedAt={page.updated_at}
+              />
+            </div>
+          )}
           <div className="flex items-center gap-4 mt-2 text-sm text-gray-500 dark:text-gray-400">
             <span className="flex items-center gap-1">
               <Clock className="h-4 w-4" />
@@ -548,6 +561,12 @@ function PageBacklinks({ pageId, spaceKey }) {
           className="block p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-shizuha-300 dark:hover:border-shizuha-600"
         >
           <h3 className="font-medium text-gray-900 dark:text-white">{p.title}</h3>
+          {/* WIKI-126: per-row verification badge (compact). */}
+          {p.verified !== undefined && (
+            <div className="mt-1">
+              <VerificationBadge verified={p.verified} verifiedAt={p.verified_at} updatedAt={p.updated_at} compact />
+            </div>
+          )}
           {p.space_key && p.space_key !== spaceKey && (
             <span className="text-xs text-gray-500 dark:text-gray-400">{p.space_key}</span>
           )}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { VerificationBadge, stalenessLabel } from '../components/VerificationBadge'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEditor, EditorContent } from '@tiptap/react'
 import {
@@ -201,6 +202,13 @@ export default function Search() {
                   <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate">
                     {highlightMatches(result.title || 'Untitled', debouncedQuery)}
                   </h4>
+                  {/* WIKI-126: verification badge — server omits the field for
+                      anonymous callers, in which case nothing renders. */}
+                  {result.verified !== undefined && (
+                    <span className="ml-1.5 inline-block align-middle">
+                      <VerificationBadge verified={result.verified} verifiedAt={result.verified_at} compact />
+                    </span>
+                  )}
                   <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-1">
                     {highlightMatches(getSnippet(result), debouncedQuery)}
                   </p>

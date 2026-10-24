@@ -1368,7 +1368,7 @@ class PageViewSet(viewsets.ModelViewSet):
                 created_by_id=request.user.id,
             )
 
-        serializer = PageDetailSerializer(page)
+        serializer = PageDetailSerializer(page, context={'request': request})
         data = serializer.data
         data['section'] = {
             'heading': updated_section.heading,
@@ -1424,7 +1424,7 @@ class PageViewSet(viewsets.ModelViewSet):
                 created_by_id=request.user.id
             )
 
-        serializer = PageDetailSerializer(page)
+        serializer = PageDetailSerializer(page, context={'request': request})
         return Response(serializer.data)
 
     @action(detail=True, methods=['get', 'post'])
@@ -1478,7 +1478,7 @@ class PageViewSet(viewsets.ModelViewSet):
         """Get child pages"""
         page = self.get_object()
         children = page.children.filter(status='published').order_by('position', 'title')
-        serializer = PageListSerializer(children, many=True)
+        serializer = PageListSerializer(children, many=True, context={'request': request})
         return Response(serializer.data)
 
     @action(detail=True, methods=['get'])
@@ -1488,7 +1488,7 @@ class PageViewSet(viewsets.ModelViewSet):
         linking_pages = Page.objects.filter(
             outgoing_links__target_page=page
         ).distinct()
-        serializer = PageListSerializer(linking_pages, many=True)
+        serializer = PageListSerializer(linking_pages, many=True, context={'request': request})
         return Response(serializer.data)
 
     @action(detail=True, methods=['get'])
@@ -1501,7 +1501,7 @@ class PageViewSet(viewsets.ModelViewSet):
             limit = 6
         related = related_pages_for(page, visible_pages=self.get_queryset(), limit=limit)
         pages = [item['page'] for item in related]
-        serialized = PageListSerializer(pages, many=True).data
+        serialized = PageListSerializer(pages, many=True, context={'request': request}).data
         by_id = {str(item['page'].id): item for item in related}
         for row in serialized:
             meta = by_id.get(str(row.get('id')))
@@ -1584,7 +1584,7 @@ class PageViewSet(viewsets.ModelViewSet):
                 page.save(update_fields=['parent', 'position', 'updated_at'])
 
             page.refresh_from_db()
-        return Response(PageDetailSerializer(page).data)
+        return Response(PageDetailSerializer(page, context={'request': request}).data)
 
     @staticmethod
     def _locked_subtree(root):
@@ -1697,8 +1697,8 @@ class LabelViewSet(viewsets.ModelViewSet):
         paginator.page_size = 20
         page = paginator.paginate_queryset(pages, request, view=self)
         if page is not None:
-            return paginator.get_paginated_response(PageListSerializer(page, many=True).data)
-        return Response(PageListSerializer(pages, many=True).data)
+            return paginator.get_paginated_response(PageListSerializer(page, many=True, context={'request': request}).data)
+        return Response(PageListSerializer(pages, many=True, context={'request': request}).data)
 
 
 class TemplateViewSet(viewsets.ModelViewSet):
@@ -2116,6 +2116,7 @@ class SearchViewSet(viewsets.ViewSet):
                 'id', 'title', 'slug', 'updated_at', 'rank',
                 'excerpt_db', 'content_head',
                 'space__key', 'space__name', 'space__organization_id',
+                'verified_at',
             )[: self.MAX_RESULTS]
         )
 
@@ -2141,13 +2142,18 @@ class SearchViewSet(viewsets.ViewSet):
                 'updated_at': row['updated_at'],
                 'rank': row['rank'] or 0,
             })
+            # WIKI-126 / SCS-239: verification badge fields on search rows —
+            # populated here, OMITTED for unauthenticated callers by the
+            # serializer's server-side guard (never SPA-side hiding).
+            results[-1]['verified'] = row['verified_at'] is not None
+            results[-1]['verified_at'] = row['verified_at']
 
         logger.info(
             'wiki.search terms=%d results=%d elapsed_ms=%d bounded=1',
             len(query.split()), len(results),
             int((time.monotonic() - started) * 1000),
         )
-        serializer = SearchResultSerializer(results, many=True)
+        serializer = SearchResultSerializer(results, many=True, context={'request': request})
         return Response(serializer.data)
 
     # WIKI-42 request bounds — every per-request allocation is capped by these.
