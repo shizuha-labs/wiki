@@ -841,9 +841,18 @@ class SpaceViewSet(viewsets.ModelViewSet):
         return Response(WikiPermissionService.get_space_permissions(request.user, space))
 
 
+class WikiPagePagination(PageNumberPagination):
+    """Honor page_size up to 100. The global default of 20 silently truncated
+    space listings (BUILD-47): page_size=100 still returned 20 pages."""
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class PageViewSet(viewsets.ModelViewSet):
     """ViewSet for managing Wiki Pages"""
     permission_classes = [IsAuthenticated, ServiceAccessPermission]
+    pagination_class = WikiPagePagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'content_text']
     ordering_fields = ['title', 'created_at', 'updated_at', 'position']
