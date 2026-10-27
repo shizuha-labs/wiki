@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { attachmentIdFromMediaSrc, markdownHeadings, renderMarkdownContent, renderSafeImageTag, renderTableOfContents, sanitizePageContent, shouldRenderMarkdown, tipTapHeadings, WIKI_MERMAID_CLASS, renderAtlasPlaceholder } from '../utils/pageContent'
 import { hydrateWikiMermaid } from '../utils/mermaidHydrate'
 import { DIAGRAM_PREFS_EVENT } from '../utils/diagramPrefs'
+import { assembleCommentTree } from '../utils/commentTree'
 
 export default function PageView() {
   const { spaceKey, pageSlug } = useParams()
@@ -735,7 +736,7 @@ function PageComments({ pageId }) {
         </p>
       ) : (
         <div className="space-y-4">
-          {comments.map((comment) => (
+          {assembleCommentTree(comments).map((comment) => (
             <CommentItem
               key={comment.id}
               comment={comment}
