@@ -1973,7 +1973,9 @@ class CommentViewSet(viewsets.ModelViewSet):
             # Use page_id to avoid conflict with DRF pagination's 'page' param.
             page_id = self.request.query_params.get('page_id') or self.request.query_params.get('page')
             if page_id:
-                return visible_comments.filter(page_id=page_id)
+                # WIKI-130: replies are nested on the root serializer. Returning
+                # them again as list rows makes the page render each reply twice.
+                return visible_comments.filter(page_id=page_id, parent__isnull=True)
             return PageComment.objects.none()
         return visible_comments
 
