@@ -49,10 +49,10 @@ assert.equal(axiosPkg.name, 'axios')
 
 const frPkg = require('follow-redirects/package.json')
 const pinned = require('../package.json').overrides?.['follow-redirects']
-assert.equal(pinned, '1.16.0')
+assert.equal(pinned, '1.16.1')
 assert.ok(
-  gte(frPkg.version, '1.16.0'),
-  `expected follow-redirects >=1.16.0, got ${frPkg.version}`,
+  gte(frPkg.version, '1.16.1'),
+  `expected follow-redirects >=1.16.1, got ${frPkg.version}`,
 )
 assert.equal(frPkg.version, pinned)
 
